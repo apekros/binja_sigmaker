@@ -1,5 +1,5 @@
 # binja_sigmaker (v2.0)
-Author: **Alex3434** 
+Author: [Alex3434](https://github.com/Alex3434)
 
 Fixed up by **apekros** for Python3 and Plugin Manager 2.0
 
