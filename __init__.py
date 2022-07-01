@@ -1,39 +1,35 @@
+import re
 from binaryninja import *
 from multiprocessing import *
 
 
 def get_address_from_sig(bv, sigList):
-	br = BinaryReader(bv)
-
-	result = 0
-
-	length = len(sigList) - 1
+	sig_expression = b''.join(map(lambda i: re.escape(bytes([i])) if i != '?' else b'.?', sigList))
+	sig_pattern = re.compile(sig_expression, re.DOTALL)
 
 	for search_func in bv.functions:
-		br.seek(search_func.start)
+		for rng in search_func.address_ranges:
+			data = bv.read(rng.start, rng.end - rng.start)
 
-		while bv.get_functions_containing(br.offset + length) != None and search_func in bv.get_functions_containing(br.offset + length):
-			found = True
-			counter = 0
-			for entry in sigList:
-				byte = br.read8()
-				counter += 1
-				if entry != byte and entry != '?':
-					found = False
+			match = sig_pattern.search(data)
+			if not match:
+				continue
+
+			# Continue search while we're not on an instruction boundary
+			isp = rng.start
+			while match:
+				pos = match.start()
+
+				while isp < rng.start + pos:
+					isp += bv.get_instruction_length(isp)
+				if isp == rng.start + pos:
 					break
+				match = sig_pattern.search(data, isp - rng.start)
 
-			br.offset -= counter
+			if match:
+				return rng.start + match.start()
 
-			if found:
-				result = br.offset
-				break
-
-			br.offset += bv.get_instruction_length(br.offset)
-
-		if result != 0:
-			break
-
-	return result
+	return 0
 
 def test_address_for_sig(bv, addr, sigList):
 	br = BinaryReader(bv)
