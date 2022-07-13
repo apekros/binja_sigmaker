@@ -1,39 +1,46 @@
+import re
 from binaryninja import *
 from multiprocessing import *
 
+def get_addresses_from_sig(bv, sigList, maxHits=None):
+	sig_expression = b''.join(map(lambda i: re.escape(bytes([i])) if i != '?' else b'.?', sigList))
+	sig_pattern = re.compile(sig_expression, re.DOTALL)
 
-def get_address_from_sig(bv, sigList):
-	br = BinaryReader(bv)
-
-	result = 0
-
-	length = len(sigList) - 1
+	result = []
 
 	for search_func in bv.functions:
-		br.seek(search_func.start)
+		for rng in search_func.address_ranges:
+			data = bv.read(rng.start, rng.end - rng.start)
 
-		while bv.get_functions_containing(br.offset + length) != None and search_func in bv.get_functions_containing(br.offset + length):
-			found = True
-			counter = 0
-			for entry in sigList:
-				byte = br.read8()
-				counter += 1
-				if entry != byte and entry != '?':
-					found = False
+			match = sig_pattern.search(data)
+			if not match:
+				continue
+
+			# Check if we're on an instruction boundary. If not, continue search
+			isp = rng.start
+			while match:
+				pos = match.start()
+				while isp < rng.start + pos:
+					isp += bv.get_instruction_length(isp)
+
+				if isp == rng.start + pos:
 					break
+				else:
+					match = sig_pattern.search(data, isp - rng.start)
 
-			br.offset -= counter
-
-			if found:
-				result = br.offset
+			if match:
+				result.append(rng.start + match.start())
 				break
-
-			br.offset += bv.get_instruction_length(br.offset)
-
-		if result != 0:
+		if maxHits is not None and len(result) >= maxHits:
 			break
 
-	return result
+	if maxHits == 1:
+		return result[0] if result else 0
+	else:
+		return result
+
+def get_address_from_sig(bv, sigList):
+	return get_addresses_from_sig(bv, sigList, 1)
 
 def test_address_for_sig(bv, addr, sigList):
 	br = BinaryReader(bv)
@@ -57,36 +64,7 @@ def test_address_for_sig(bv, addr, sigList):
 	return found
 
 def get_amount_of_hits(bv, sigList):
-	br = BinaryReader(bv)
-
-	result = 0
-
-	if len(sigList) == 0:
-		return result
-
-	sigLen = len(sigList) - 1
-
-	for search_func in bv.functions:
-		br.seek(search_func.start)
-
-		while bv.get_functions_containing(br.offset + sigLen) != None and search_func in bv.get_functions_containing(br.offset + sigLen):
-			found = True
-			counter = 0
-			for entry in sigList:
-				byte = br.read8()
-				counter += 1
-				if entry != byte and entry != '?':
-					found = False
-					break
-
-			br.offset -= counter
-
-			if found:
-				result += 1
-
-			br.offset += bv.get_instruction_length(br.offset)
-
-	return result
+	return len(get_addresses_from_sig(bv, sigList))
 
 def get_addr_of_hits(bv, sigList):
 	br = BinaryReader(bv)
@@ -148,11 +126,11 @@ class Finder(BackgroundTaskThread):
 			elif value != '?' and value != '':
 				sigList.append(int(value,16))
 
-		result = get_address_from_sig(self.bv, sigList)
+		result = get_addresses_from_sig(self.bv, sigList)
 
-		if result != 0:
-			new_result = result
-			print('Found:\t' + convert_to_hex_string(new_result) + '\nInside:\t' + convert_to_hex_string(self.bv.get_functions_containing(new_result)[0].start) + '\nHits:\t' + convert_to_hex_string(get_amount_of_hits(self.bv,sigList))) #+ )
+		if result:
+			new_result = result[0]
+			print('Found:\t' + convert_to_hex_string(new_result) + '\nInside:\t' + convert_to_hex_string(self.bv.get_functions_containing(new_result)[0].start) + '\nHits:\t' + convert_to_hex_string(len(result)))
 			print('\nSignature:\t' + user_input.decode())
 			res = show_message_box("Search result",'Address:\t' + convert_to_hex_string(new_result) + '\n' + 'Function:\t' + convert_to_hex_string(self.bv.get_functions_containing(new_result)[0].start) + '\nWant to jump to the address?', MessageBoxButtonSet.YesNoButtonSet, MessageBoxIcon.InformationIcon)
 			if res == MessageBoxButtonResult.YesButton:
