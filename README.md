@@ -1,6 +1,8 @@
 # binja_sigmaker (v2.1)
 Author: [Alex3434](https://github.com/Alex3434)
 
+I recommend instead using [this](https://github.com/unknowntrojan/binja_coolsigmaker)
+
 Fixed up by **apekros** for Python3 and Plugin Manager 2.0
 
 binja_sigmaker plugin for Binary Ninja
